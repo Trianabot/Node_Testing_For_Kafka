@@ -79,11 +79,19 @@ async function startListening() {
             new MongoFactory().openMongoConnection((deviceCount / 2)).then((mongoClient: any) => {
                 collectionObj = mongoClient.collection(Config.dataCollectionName);
                 collectionObj.insertMany([message], (err, result) => {
+                    if (err) {
+                        console.log("insert error:", err);
+                    }
+                    // con sole.log("insert result", result);
                     // console.log("Inserted document into the collection");
                 });
             });
         } else {
             collectionObj.insertMany([message], (err, result) => {
+                if (err) {
+                    console.log("insert error:", err);
+                }
+                // console.log("insert result", result);
                 // console.log("Inserted document into the collection");
             });
         }
@@ -142,3 +150,7 @@ async function checkForNewTopicsAndSubscribe() {
     });
 
 }
+
+new MongoFactory().openMongoConnection((deviceCount / 2)).then((mongoClient: any) => {
+    collectionObj = mongoClient.collection(Config.dataCollectionName);
+});

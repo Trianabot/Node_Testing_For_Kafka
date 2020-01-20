@@ -11,25 +11,27 @@ class Config {
     constructor() {
         let mongoHost: string;
         let mongoPort: number;
-        console.log("Running with environment:", process.env.ENV);
-        switch (process.env.ENV) {
+        const env = process.env.ENV.trim();
+        console.log("Running with environment:", env);
+        switch (env) {
             case "prod":
                 this.kafkaHost = "3.225.207.252";
                 this.kafkaPort = 9092;
-                mongoHost = "127.0.0.1";
-                mongoPort = 25015;
-                this.mongoDatabaseName = "Temp";
+                this.mongoDatabaseName = "Node_Test";
+                this.mongoUrl = "mongodb+srv://iotdata:admin123" +
+                    "@cluster0-v9hbe.mongodb.net/test?retryWrites=true&w=majority";
                 break;
             case "dev":
+                console.log("c d--");
             default:
+                console.log("c d");
                 this.kafkaHost = "3.225.207.252";
                 this.kafkaPort = 9092;
                 mongoHost = "127.0.0.1";
                 mongoPort = 25015;
                 this.mongoDatabaseName = "Temp";
+                this.mongoUrl = "mongodb://" + mongoHost + ":" + mongoPort + "/" + this.mongoDatabaseName + "?retryWrites=true&w=majority";
         }
-
-        this.mongoUrl = "mongodb://" + mongoHost + ":" + mongoPort + "/" + this.mongoDatabaseName + "?retryWrites=true&w=majority";
     }
 
 }

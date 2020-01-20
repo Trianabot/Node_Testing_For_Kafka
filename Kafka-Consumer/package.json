@@ -3,7 +3,8 @@
     "version": "0.0.0",
     "scripts": {
         "start:dev": "npm run lint && tsc && SET ENV=dev && node ./dist/index.js",
-        "start:prod": "npm run lint && tsc && SET ENV=prod && node ./dist/index.js",
+        "start:local:prod": "npm run lint && tsc && SET ENV=prod && node ./dist/index.js",
+        "start:prod": "npm run lint && tsc && ENV=prod node ./dist/index.js",
         "build": "npm run lint && tsc",
         "tsc": "tsc",
         "lint": "tslint src/**/*.ts"
