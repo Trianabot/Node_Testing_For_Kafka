@@ -10,8 +10,7 @@
     },
     "private": true,
     "dependencies": {
-        "kafka-node": "^5.0.0",
-        "mongodb": "^3.4.1"
+        "kafka-node": "^5.0.0"
     },
     "devDependencies": {
         "@types/node": "^13.1.1",
