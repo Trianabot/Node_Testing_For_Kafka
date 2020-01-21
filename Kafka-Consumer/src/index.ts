@@ -75,10 +75,12 @@ async function startListening() {
         //     console.log("freceived topics-----:", receivedTopicsSet.size);
         //     receivedTopicsSet.clear();
         // }, 3000);
+        const receivedData = JSON.parse(message.value);
+        receivedData.receivedTime = currentTime;
         if (collectionObj == null) {
             new MongoFactory().openMongoConnection((deviceCount / 2)).then((mongoClient: any) => {
                 collectionObj = mongoClient.collection(Config.dataCollectionName);
-                collectionObj.insertMany([message], (err, result) => {
+                collectionObj.insertMany([receivedData], (err, result) => {
                     if (err) {
                         console.log("insert error:", err);
                     }
@@ -87,7 +89,7 @@ async function startListening() {
                 });
             });
         } else {
-            collectionObj.insertMany([message], (err, result) => {
+            collectionObj.insertMany([receivedData], (err, result) => {
                 if (err) {
                     console.log("insert error:", err);
                 }

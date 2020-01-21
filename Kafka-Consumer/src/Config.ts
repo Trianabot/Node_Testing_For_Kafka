@@ -22,9 +22,7 @@ class Config {
                     "@cluster0-v9hbe.mongodb.net/test?retryWrites=true&w=majority";
                 break;
             case "dev":
-                console.log("c d--");
             default:
-                console.log("c d");
                 this.kafkaHost = "3.225.207.252";
                 this.kafkaPort = 9092;
                 mongoHost = "127.0.0.1";

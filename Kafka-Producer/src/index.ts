@@ -1,6 +1,7 @@
 import Config from "./Config";
 import KafkaFactory from "./KafkaFactory";
 import readline = require("readline");
+import MongoFactory from "./MongoFactory";
 
 const kafkaFactoryObj = new KafkaFactory(Config.kafkaHost, Config.kafkaPort);
 
@@ -21,6 +22,8 @@ const deviceName = "Test_Device_";
 let timeDelay = 10000;
 
 const deviceIdArray = new Array();
+
+let collectionObj = null;
 
 // "setDuration" : 0,
 // "remainDuration" : 0,
@@ -159,14 +162,35 @@ async function createTopicAndPublishData(topicName, callbackFunction, dataTosend
     });
 }
 
-async function publishDataToTopic(topicName: string, dataTosend: object) {
+async function publishDataToTopic(topicName: string, dataTosend: any) {
+    dataTosend.publishedTime = new Date().getTime();
+    const objString = JSON.stringify(dataTosend);
     const payloads = [
-        { topic: topicName, messages: JSON.stringify(dataTosend), partition: 0 },
+        { topic: topicName, messages: objString, partition: 0 },
     ];
     producer.send(payloads, (err, data) => {
-        // console.log("sent:", data);
+        if (collectionObj == null) {
+            new MongoFactory().openMongoConnection((numberOfDevice / 2)).then((mongoClient: any) => {
+                collectionObj = mongoClient.collection(Config.dataCollectionName);
+                collectionObj.insertMany([JSON.parse(objString)], (dbErr, result) => {
+                    if (dbErr) {
+                        console.log("insert error:", dbErr);
+                    }
+                });
+            });
+        } else {
+            collectionObj.insertMany([JSON.parse(objString)], (dbErr, result) => {
+                if (dbErr) {
+                    console.log("insert error:", dbErr);
+                }
+            });
+        }
         if (err) {
             console.error("Error occured while publishing to topic:", err);
         }
     });
 }
+
+new MongoFactory().openMongoConnection((numberOfDevice / 2)).then((mongoClient: any) => {
+    collectionObj = mongoClient.collection(Config.dataCollectionName);
+});
