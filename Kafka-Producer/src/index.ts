@@ -25,6 +25,14 @@ const deviceIdArray = new Array();
 
 let collectionObj = null;
 
+let total = 0;
+
+const messageStorageArr = new Array();
+messageStorageArr.push(new Array());
+
+let tempStorageCount = 0;
+let storageIndex = 0;
+
 // "setDuration" : 0,
 // "remainDuration" : 0,
 // "errorIndication" : 255,
@@ -53,6 +61,11 @@ readlineInterface.question("Do you want to customize the input(Y/N)? ", (customi
         readlineInterface.question("Enter Number of device for simulation:", (deviceNumber) => {
             if (deviceNumber) {
                 numberOfDevice = parseInt(deviceNumber, 10);
+                if (numberOfDevice < 100) {
+                    tempStorageCount = numberOfDevice - 1;
+                } else {
+                    tempStorageCount = 99;
+                }
             }
             readlineInterface.close();
             readlineInterface = readline.createInterface({
@@ -169,24 +182,50 @@ async function publishDataToTopic(topicName: string, dataTosend: any) {
         { topic: topicName, messages: objString, partition: 0 },
     ];
     producer.send(payloads, (err, data) => {
-        if (collectionObj == null) {
-            new MongoFactory().openMongoConnection((numberOfDevice / 2)).then((mongoClient: any) => {
-                collectionObj = mongoClient.collection(Config.dataCollectionName);
-                collectionObj.insertMany([JSON.parse(objString)], (dbErr, result) => {
-                    if (dbErr) {
-                        console.log("insert error:", dbErr);
-                    }
-                });
-            });
+        if (messageStorageArr[storageIndex].length < tempStorageCount) {
+            messageStorageArr[storageIndex].push(JSON.parse(objString));
         } else {
-            collectionObj.insertMany([JSON.parse(objString)], (dbErr, result) => {
-                if (dbErr) {
-                    console.log("insert error:", dbErr);
+            messageStorageArr[storageIndex].push(JSON.parse(objString));
+            // console.log("storage len:", messageStorageArr[storageIndex].length);
+            // console.log("messageStorageArr :", messageStorageArr);
+            const indexToSave = storageIndex;
+            for (let index = 0; index < messageStorageArr.length; index++) {
+                // console.log("in:" + index + ", len:" + messageStorageArr[index].length);
+                if (messageStorageArr[index].length === 0) {
+                    storageIndex = index;
+                    break;
                 }
-            });
+            }
+            if (indexToSave === storageIndex) {
+                messageStorageArr.push(new Array());
+                storageIndex = messageStorageArr.length - 1;
+            }
+            // console.log("storageIndex:", storageIndex);
+            if (collectionObj == null) {
+                new MongoFactory().openMongoConnection((numberOfDevice / 2)).then((mongoClient: any) => {
+                    collectionObj = mongoClient.collection(Config.dataCollectionName);
+                    saveIntoDB(messageStorageArr[indexToSave], indexToSave);
+                });
+            } else {
+                saveIntoDB(messageStorageArr[indexToSave], indexToSave);
+            }
         }
+
         if (err) {
             console.error("Error occured while publishing to topic:", err);
+        }
+    });
+}
+
+async function saveIntoDB(docArray, index) {
+    // console.log("docArray:", docArray);
+    collectionObj.insertMany(docArray, (dbErr, result) => {
+        if (dbErr) {
+            console.log("insert error:", dbErr);
+        } else {
+            messageStorageArr[index] = new Array();
+            total += docArray.length;
+            console.log("Total Published:", total);
         }
     });
 }

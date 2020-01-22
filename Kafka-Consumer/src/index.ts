@@ -23,6 +23,13 @@ let timeDiff = null;
 
 let deviceCount;
 
+let total = 0;
+const messageStorageArr = new Array();
+messageStorageArr.push(new Array());
+
+let tempStorageCount = 0;
+let storageIndex = 0;
+
 const readlineInterface = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -30,6 +37,11 @@ const readlineInterface = readline.createInterface({
 
 readlineInterface.question("Enter numbder of device for listening:", (numberOfDevice) => {
     deviceCount = parseInt(numberOfDevice, 10);
+    if (deviceCount < 100) {
+        tempStorageCount = deviceCount;
+    } else {
+        tempStorageCount = 99;
+    }
     readlineInterface.close();
     if (between(deviceCount, 1, 500)) {
         timeDiff = 3000;
@@ -77,27 +89,50 @@ async function startListening() {
         // }, 3000);
         const receivedData = JSON.parse(message.value);
         receivedData.receivedTime = currentTime;
-        if (collectionObj == null) {
-            new MongoFactory().openMongoConnection((deviceCount / 2)).then((mongoClient: any) => {
-                collectionObj = mongoClient.collection(Config.dataCollectionName);
-                collectionObj.insertMany([receivedData], (err, result) => {
-                    if (err) {
-                        console.log("insert error:", err);
-                    }
-                    // con sole.log("insert result", result);
-                    // console.log("Inserted document into the collection");
-                });
-            });
-        } else {
-            collectionObj.insertMany([receivedData], (err, result) => {
-                if (err) {
-                    console.log("insert error:", err);
-                }
-                // console.log("insert result", result);
-                // console.log("Inserted document into the collection");
-            });
-        }
 
+        // console.log("delay:", currentTime - receivedData.publishedTime);
+        if (messageStorageArr[storageIndex].length < tempStorageCount) {
+            messageStorageArr[storageIndex].push(receivedData);
+        } else {
+            messageStorageArr[storageIndex].push(receivedData);
+            // console.log("storageIndex:", storageIndex);
+            // console.log("storage len:", messageStorageArr[storageIndex].length);
+            // console.log("messageStorageArr :", messageStorageArr);
+            const indexToSave = storageIndex;
+            for (let index = 0; index < messageStorageArr.length; index++) {
+                // console.log("in:" + index + ", len:" + messageStorageArr[index].length);
+                if (messageStorageArr[index].length === 0) {
+                    storageIndex = index;
+                    break;
+                }
+            }
+            if (indexToSave === storageIndex) {
+                messageStorageArr.push(new Array());
+                storageIndex = messageStorageArr.length - 1;
+            }
+            if (collectionObj == null) {
+                new MongoFactory().openMongoConnection((deviceCount / 2)).then((mongoClient: any) => {
+                    collectionObj = mongoClient.collection(Config.dataCollectionName);
+                    saveIntoDB(messageStorageArr[indexToSave], indexToSave);
+                });
+            } else {
+                saveIntoDB(messageStorageArr[indexToSave], indexToSave);
+            }
+        }
+    });
+}
+
+async function saveIntoDB(docArray, index) {
+    collectionObj.insertMany(docArray, (err, result) => {
+        if (err) {
+            console.log("insert error:", err);
+        } else {
+            messageStorageArr[index] = new Array();
+            total += docArray.length;
+            console.log("Total Received:", total);
+        }
+        // console.log("insert result", result);
+        // console.log("Inserted document into the collection");
     });
 }
 
