@@ -182,10 +182,12 @@ async function publishDataToTopic(topicName: string, dataTosend: any) {
         { topic: topicName, messages: objString, partition: 0 },
     ];
     producer.send(payloads, (err, data) => {
+        const object = JSON.parse(objString);
+        object.processed = false;
         if (messageStorageArr[storageIndex].length < tempStorageCount) {
-            messageStorageArr[storageIndex].push(JSON.parse(objString));
+            messageStorageArr[storageIndex].push(object);
         } else {
-            messageStorageArr[storageIndex].push(JSON.parse(objString));
+            messageStorageArr[storageIndex].push(object);
             // console.log("storage len:", messageStorageArr[storageIndex].length);
             // console.log("messageStorageArr :", messageStorageArr);
             const indexToSave = storageIndex;
