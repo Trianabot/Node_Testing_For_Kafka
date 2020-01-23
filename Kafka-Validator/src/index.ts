@@ -4,9 +4,14 @@ import MongoFactory from "./MongoFactory";
 let publishedCollectionObj = null;
 let receivedCollectionObj = null;
 
-let deletedCount = 0;
 let fetchLimit = 100;
 let timeout = 1000;
+
+const processedObjects = new Set();
+const alreadyRead = new Set();
+const tempStorageArray = new Array();
+tempStorageArray.push(new Array());
+let storageIndex = 0;
 
 new MongoFactory().openMongoConnection(10).then((mongoClient: any) => {
 
@@ -23,17 +28,17 @@ new MongoFactory().openMongoConnection(10).then((mongoClient: any) => {
                 console.log("Count error:", error);
             }
             if (numOfDocs > 50000) {
-                timeout = 10;
-                fetchLimit = 25;
-            } else if (numOfDocs > 10000) {
                 timeout = 100;
-                fetchLimit = 50;
+                fetchLimit = 100;
+            } else if (numOfDocs > 10000) {
+                timeout = 150;
+                fetchLimit = 100;
             } else if (numOfDocs > 7500) {
                 timeout = 200;
-                fetchLimit = 70;
+                fetchLimit = 100;
             } else if (numOfDocs > 5000) {
                 timeout = 300;
-                fetchLimit = 100;
+                fetchLimit = 125;
             } else if (numOfDocs > 1000) {
                 timeout = 1000;
                 fetchLimit = 200;
@@ -41,74 +46,106 @@ new MongoFactory().openMongoConnection(10).then((mongoClient: any) => {
         });
     }, 10000);
 
+    setInterval(() => {
+        const canDelete = new Array();
+        for (const key of processedObjects) {
+            canDelete.push(key);
+            processedObjects.delete(key);
+            alreadyRead.delete(key);
+        }
+
+        publishedCollectionObj.deleteMany({ uniqueKey: { $in: canDelete } },
+            (deleteErr, result) => {
+                if (deleteErr) {
+                    console.log("deleteErr:", deleteErr);
+                } else {
+                    console.log("deleted from pub:", result.deletedCount);
+                }
+
+            });
+
+        receivedCollectionObj.deleteMany({ processed: true },
+            (deleteErr, result) => {
+                if (deleteErr) {
+                    console.log("deleteErr:", deleteErr);
+                } else {
+                    console.log("deleted from received:", result.deletedCount);
+                }
+
+            });
+
+    }, 3000);
+
 });
 
 async function startValidaion() {
-    deletedCount = 0;
-    publishedCollectionObj.find({ processed: false }).sort({ _id: 1 }).limit(fetchLimit)
+    console.log("fafaf");
+    publishedCollectionObj.find({ uniqueKey: { $nin: Array.from(alreadyRead) } }).limit(fetchLimit)
         .toArray(async (err, docsArray) => {
+
             if (err) {
                 console.log("Find error:", err);
             }
-            const arrLength = docsArray.length;
-            const idArray = new Array();
+            let uKey = null;
             for (const doc of docsArray) {
-                idArray.push(doc._id);
-            }
-            publishedCollectionObj.updateMany({ _id: { $in: idArray } },
-                { $set: { processed: true } }, (updateErr, doc) => {
-                    if (updateErr) {
-                        console.log("updateErr:", err);
-                    } else {
-                        for (let index = 0; index < arrLength; index++) {
-                            validateAndDelete(docsArray[index]);
+                uKey = doc.uniqueKey;
+                alreadyRead.add(uKey);
+
+                if (tempStorageArray[storageIndex].length < 99) {
+                    tempStorageArray[storageIndex].push(uKey);
+                } else {
+                    tempStorageArray[storageIndex].push(uKey);
+                    const indexToSave = storageIndex;
+                    for (let index = 0; index < tempStorageArray.length; index++) {
+                        // console.log("in:" + index + ", len:" + messageStorageArr[index].length);
+                        if (tempStorageArray[index].length === 0) {
+                            storageIndex = index;
+                            break;
                         }
                     }
-                    setTimeout(() => {
-                        console.log("deletedCount:", deletedCount);
-                        console.log("date:", new Date());
-                        startValidaion();
-                    }, timeout);
-                });
+                    if (indexToSave === storageIndex) {
+                        tempStorageArray.push(new Array());
+                        storageIndex = tempStorageArray.length - 1;
+                    }
+                    validateAndDelete(tempStorageArray[indexToSave], indexToSave);
+                }
+
+            }
+
+            setTimeout(() => {
+                startValidaion();
+            }, timeout);
+
         });
 }
 
-async function validateAndDelete(message) {
-    let delay = -1;
-    receivedCollectionObj.find
-        ({ deviceId: message.deviceId, publishedTime: message.publishedTime }).toArray((findErr, documents) => {
-            if (documents.length === 1) {
-                delay = documents[0].receivedTime - message.publishedTime;
-                if (delay <= 5000 || true) {
-                    receivedCollectionObj.deleteOne({ _id: documents[0]._id }, (deleteErr, result) => {
-                        if (deleteErr) {
-                            console.log("deleteErr: ", deleteErr);
-                        } else {
-                            // console.log("deleted received");
-                            publishedCollectionObj.deleteOne({ _id: message._id }, (pubDeleteErr, pubResult) => {
-                                if (pubDeleteErr) {
-                                    console.log("pubDeleteErr: ", pubDeleteErr);
-                                } else {
-                                    // console.log("deleted published");
-                                    deletedCount++;
-                                }
-                            });
-                        }
-                    });
-
-                } else {
-                    console.log("Long delay:", delay);
-                }
-                // console.log("delay: ", delay);
-                // console.log("find:", documents);
-            } else if (documents.length > 1) {
-                console.log("dupe records found");
+async function validateAndDelete(uniqueKeys, index) {
+    // let delay = -1;
+    receivedCollectionObj.updateMany(
+        { uniqueKey: { $in: uniqueKeys } },
+        {
+            $set: { processed: true },
+        },
+        (updateErr, updateResult) => {
+            if (updateErr) {
+                console.log("updateErr:", updateErr);
             } else {
-                console.log("DOcument not found: ", {
-                    deviceId: message.deviceId,
-                    publishedTime: message.publishedTime,
-                });
+
+                if (updateResult.modifiedCount === uniqueKeys.length) {
+                    // console.log("Some documents not received, keys:" +
+                    //     uniqueKeys.length + ", modified:" + updateResult.modifiedCount + ", docs:", uniqueKeys);
+                    for (const key of uniqueKeys) {
+                        processedObjects.add(key);
+                    }
+                } else {
+                    console.log("uniqueKeys:", uniqueKeys);
+                    console.log("not found", updateResult.modifiedCount + "-" + uniqueKeys.length);
+                    for (const key of uniqueKeys) {
+                        alreadyRead.delete(key);
+                    }
+                }
             }
+            tempStorageArray[index] = new Array();
 
         });
 }

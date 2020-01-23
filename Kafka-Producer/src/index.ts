@@ -26,12 +26,14 @@ const deviceIdArray = new Array();
 let collectionObj = null;
 
 let total = 0;
+let totalSaved = 0;
 
 const messageStorageArr = new Array();
 messageStorageArr.push(new Array());
 
 let tempStorageCount = 0;
 let storageIndex = 0;
+let uniqueKey = null;
 
 // "setDuration" : 0,
 // "remainDuration" : 0,
@@ -43,7 +45,7 @@ let storageIndex = 0;
 
 const dataPacketObj = {
     currentSpeed: 3, currentState: 1, deviceId: null, humidity: 14, mode: 1, pktStatus: 0, pktTyp: 8481,
-    seqNum: 8084, temperature: 23, uuid: null,
+    publishedTime: null, seqNum: 8084, temperature: 23, uniqueKey: null, uuid: null,
 };
 
 let readlineInterface = readline.createInterface({
@@ -101,7 +103,6 @@ readlineInterface.question("Do you want to customize the input(Y/N)? ", (customi
         });
     } else {
         readlineInterface.close();
-        startProcess();
     }
 
 });
@@ -119,15 +120,25 @@ async function getTopics() {
 getTopics();
 
 async function startProcess() {
-    for (let index = 1; index <= numberOfDevice; index++) {
-        deviceIdArray.push(devicePrefix + deviceName + index);
-    }
-    if (producerReady) {
-        console.log("Starting the process with repeat interval of " + (timeDelay / 1000) + " seconds");
-        startPublishing();
+
+    if (collectionObj == null) {
+        getMongoConnection().then(() => {
+            console.log("uniqueKey:", uniqueKey);
+            startProcess();
+        });
     } else {
-        console.error("Producer is not ready yet.");
+        console.log("uniqueKey:", uniqueKey);
+        for (let index = 1; index <= numberOfDevice; index++) {
+            deviceIdArray.push(devicePrefix + deviceName + index);
+        }
+        if (producerReady) {
+            console.log("Starting the process with repeat interval of " + (timeDelay / 1000) + " seconds");
+            startPublishing();
+        } else {
+            console.error("Producer is not ready yet.");
+        }
     }
+
 }
 
 producer.on("ready", () => {
@@ -143,11 +154,14 @@ async function startPublishing() {
     for (const deviceId of deviceIdArray) {
         dataPacketObj.deviceId = deviceId;
         dataPacketObj.uuid = deviceId;
+        dataPacketObj.publishedTime = new Date().getTime();
+        dataPacketObj.uniqueKey = uniqueKey;
+        uniqueKey++;
         if (!topicNamesArray.find((topicName) => topicName === deviceId)) {
             console.log("topic not present:", deviceId);
-            createTopicAndPublishData(deviceId, publishDataToTopic, dataPacketObj);
+            createTopicAndPublishData(deviceId, publishDataToTopic, JSON.stringify(dataPacketObj));
         } else {
-            publishDataToTopic(deviceId, dataPacketObj);
+            publishDataToTopic(deviceId, JSON.stringify(dataPacketObj));
         }
     }
 
@@ -176,14 +190,11 @@ async function createTopicAndPublishData(topicName, callbackFunction, dataTosend
 }
 
 async function publishDataToTopic(topicName: string, dataTosend: any) {
-    dataTosend.publishedTime = new Date().getTime();
-    const objString = JSON.stringify(dataTosend);
     const payloads = [
-        { topic: topicName, messages: objString, partition: 0 },
+        { topic: topicName, messages: dataTosend, partition: 0 },
     ];
     producer.send(payloads, (err, data) => {
-        const object = JSON.parse(objString);
-        object.processed = false;
+        const object = JSON.parse(dataTosend);
         if (messageStorageArr[storageIndex].length < tempStorageCount) {
             messageStorageArr[storageIndex].push(object);
         } else {
@@ -227,11 +238,28 @@ async function saveIntoDB(docArray, index) {
         } else {
             messageStorageArr[index] = new Array();
             total += docArray.length;
+            totalSaved += result.insertedCount;
             console.log("Total Published:", total);
+            console.log("Total saved:", totalSaved);
         }
     });
 }
 
-new MongoFactory().openMongoConnection((numberOfDevice / 2)).then((mongoClient: any) => {
-    collectionObj = mongoClient.collection(Config.dataCollectionName);
-});
+async function getMongoConnection() {
+    return new Promise((resolve, reject) => {
+        new MongoFactory().openMongoConnection((numberOfDevice / 2)).then((mongoClient: any) => {
+            collectionObj = mongoClient.collection(Config.dataCollectionName);
+            collectionObj.find({}).sort({ uniqueKey: -1 }).limit(1).toArray((err, docsArray) => {
+                if (docsArray.length) {
+                    uniqueKey = docsArray[0].uniqueKey + 1;
+                } else {
+                    uniqueKey = 1;
+                }
+                resolve(uniqueKey);
+            });
+        });
+    });
+
+}
+
+getMongoConnection();

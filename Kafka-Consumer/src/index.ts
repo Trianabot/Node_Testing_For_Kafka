@@ -15,8 +15,6 @@ const unsubscribedTopics = ["LinxupLocationTopic", "googleMap"];
 
 const receivedTopicsSet = new Set();
 
-// let timeoutId = null;
-
 let lastReceivedTime = null;
 
 let timeDiff = null;
@@ -24,6 +22,7 @@ let timeDiff = null;
 let deviceCount;
 
 let total = 0;
+let totalSaved = 0;
 const messageStorageArr = new Array();
 messageStorageArr.push(new Array());
 
@@ -69,26 +68,22 @@ function between(x, min, max) {
 
 async function startListening() {
     consumer.on("message", (message) => {
-        // console.log("Received message:", message.topic);
-        // if (timeoutId) {
-        //     clearTimeout(timeoutId);
-        // }
+
         const currentTime = new Date().getTime();
         const diff = currentTime - lastReceivedTime;
         // console.log("diff:", diff);
         if (lastReceivedTime && ((diff) > timeDiff)) {
             console.log("Received messages ----- :", receivedTopicsSet.size);
             receivedTopicsSet.clear();
-            // timeoutId = null;
         }
         lastReceivedTime = currentTime;
         receivedTopicsSet.add(message.topic);
-        // timeoutId = setTimeout(() => {
-        //     console.log("freceived topics-----:", receivedTopicsSet.size);
-        //     receivedTopicsSet.clear();
-        // }, 3000);
+
         const receivedData = JSON.parse(message.value);
+
+        // Add new properties for validation
         receivedData.receivedTime = currentTime;
+        receivedData.processed = false;
 
         // console.log("delay:", currentTime - receivedData.publishedTime);
         if (messageStorageArr[storageIndex].length < tempStorageCount) {
@@ -129,7 +124,9 @@ async function saveIntoDB(docArray, index) {
         } else {
             messageStorageArr[index] = new Array();
             total += docArray.length;
+            totalSaved += result.insertedCount;
             console.log("Total Received:", total);
+            console.log("Total saved:", totalSaved);
         }
         // console.log("insert result", result);
         // console.log("Inserted document into the collection");
