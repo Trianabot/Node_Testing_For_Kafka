@@ -4,7 +4,8 @@ class MongoFactory {
 
     public mongoClient: any;
 
-    public async openMongoConnection(maxPoolSize) {
+    public async openMongoConnection(poolSize) {
+        const maxPoolSize = Math.ceil(poolSize);
         return new Promise((resolve, reject) => {
             const MongoClient = require("mongodb").MongoClient;
             const env = process.env.ENV.trim();
