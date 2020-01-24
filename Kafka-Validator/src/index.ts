@@ -12,6 +12,7 @@ const alreadyRead = new Set();
 const tempStorageArray = new Array();
 tempStorageArray.push(new Array());
 let storageIndex = 0;
+let maxStorageSize = fetchLimit - 1;
 
 new MongoFactory().openMongoConnection(10).then((mongoClient: any) => {
 
@@ -19,6 +20,7 @@ new MongoFactory().openMongoConnection(10).then((mongoClient: any) => {
     receivedCollectionObj = mongoClient.collection(Config.receivedCollectionName);
 
     startValidaion();
+    startDeletion();
 
     setInterval(() => {
         publishedCollectionObj.estimatedDocumentCount({}, (error, numOfDocs) => {
@@ -43,55 +45,30 @@ new MongoFactory().openMongoConnection(10).then((mongoClient: any) => {
                 timeout = 1000;
                 fetchLimit = 200;
             }
+            maxStorageSize = fetchLimit - 1;
         });
     }, 10000);
-
-    setInterval(() => {
-        const canDelete = new Array();
-        for (const key of processedObjects) {
-            canDelete.push(key);
-            processedObjects.delete(key);
-            alreadyRead.delete(key);
-        }
-
-        publishedCollectionObj.deleteMany({ uniqueKey: { $in: canDelete } },
-            (deleteErr, result) => {
-                if (deleteErr) {
-                    console.log("deleteErr:", deleteErr);
-                } else {
-                    console.log("deleted from pub:", result.deletedCount);
-                }
-
-            });
-
-        receivedCollectionObj.deleteMany({ processed: true },
-            (deleteErr, result) => {
-                if (deleteErr) {
-                    console.log("deleteErr:", deleteErr);
-                } else {
-                    console.log("deleted from received:", result.deletedCount);
-                }
-
-            });
-
-    }, 3000);
 
 });
 
 async function startValidaion() {
-    console.log("fafaf");
     publishedCollectionObj.find({ uniqueKey: { $nin: Array.from(alreadyRead) } }).limit(fetchLimit)
         .toArray(async (err, docsArray) => {
-
             if (err) {
                 console.log("Find error:", err);
+            }
+            if (docsArray.length && docsArray.length < fetchLimit) {
+                maxStorageSize = docsArray.length - 1;
+            }
+            if (docsArray.length === 0) {
+                alreadyRead.clear();
             }
             let uKey = null;
             for (const doc of docsArray) {
                 uKey = doc.uniqueKey;
                 alreadyRead.add(uKey);
 
-                if (tempStorageArray[storageIndex].length < 99) {
+                if (tempStorageArray[storageIndex].length < maxStorageSize) {
                     tempStorageArray[storageIndex].push(uKey);
                 } else {
                     tempStorageArray[storageIndex].push(uKey);
@@ -107,7 +84,7 @@ async function startValidaion() {
                         tempStorageArray.push(new Array());
                         storageIndex = tempStorageArray.length - 1;
                     }
-                    validateAndDelete(tempStorageArray[indexToSave], indexToSave);
+                    findAndUpdate(tempStorageArray[indexToSave], indexToSave);
                 }
 
             }
@@ -119,8 +96,7 @@ async function startValidaion() {
         });
 }
 
-async function validateAndDelete(uniqueKeys, index) {
-    // let delay = -1;
+async function findAndUpdate(uniqueKeys, index) {
     receivedCollectionObj.updateMany(
         { uniqueKey: { $in: uniqueKeys } },
         {
@@ -129,23 +105,55 @@ async function validateAndDelete(uniqueKeys, index) {
         (updateErr, updateResult) => {
             if (updateErr) {
                 console.log("updateErr:", updateErr);
-            } else {
-
-                if (updateResult.modifiedCount === uniqueKeys.length) {
-                    // console.log("Some documents not received, keys:" +
-                    //     uniqueKeys.length + ", modified:" + updateResult.modifiedCount + ", docs:", uniqueKeys);
-                    for (const key of uniqueKeys) {
-                        processedObjects.add(key);
-                    }
-                } else {
-                    console.log("uniqueKeys:", uniqueKeys);
-                    console.log("not found", updateResult.modifiedCount + "-" + uniqueKeys.length);
-                    for (const key of uniqueKeys) {
-                        alreadyRead.delete(key);
-                    }
-                }
             }
             tempStorageArray[index] = new Array();
+
+        });
+}
+
+async function startDeletion() {
+    const start = new Date().getTime();
+    receivedCollectionObj.find({ processed: true, uniqueKey: { $nin: Array.from(processedObjects) } }).limit(fetchLimit)
+        .toArray(async (err, docsArray) => {
+            if (err) {
+                console.log("Received fetch error:", err);
+            }
+            let key = null;
+            const canDelete = new Array();
+            for (const doc of docsArray) {
+                key = doc.uniqueKey;
+                processedObjects.add(key);
+                alreadyRead.delete(key);
+                canDelete.push(key);
+            }
+            deleteFromDB(canDelete);
+            setTimeout(() => {
+                startDeletion();
+            }, timeout);
+        });
+}
+
+async function deleteFromDB(canDelete) {
+
+    publishedCollectionObj.deleteMany({ uniqueKey: { $in: canDelete } },
+        (pubDeleteErr, pubResult) => {
+            if (pubDeleteErr) {
+                console.log("pubDeleteErr:", pubDeleteErr);
+            } else {
+                console.log("deleted from pub:", pubResult.deletedCount);
+                receivedCollectionObj.deleteMany({ uniqueKey: { $in: canDelete } },
+                    (subDeleteErr, subResult) => {
+                        if (subDeleteErr) {
+                            console.log("subDeleteErr:", subDeleteErr);
+                        } else {
+                            console.log("deleted from received:", subResult.deletedCount);
+                            for (const key of canDelete) {
+                                processedObjects.delete(key);
+                            }
+                        }
+
+                    });
+            }
 
         });
 }
